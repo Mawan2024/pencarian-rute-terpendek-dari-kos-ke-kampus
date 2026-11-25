@@ -1,0 +1,205 @@
+from multiprocessing import Pool, cpu_count
+from time import perf_counter
+
+# ==========================================
+# DATA RUTE KOS MENUJU FAKULTAS TEKNIK
+# ==========================================
+
+NAMA_LOKASI = {
+    0: "Kos",
+    1: "Simpang Dekat",
+    2: "Simpang Jauh",
+    3: "Fakultas Teknik UNSULBAR"
+}
+
+JUMLAH_VERTEX = len(NAMA_LOKASI)
+
+# Format edge: (lokasi_awal, lokasi_tujuan, waktu_menit)
+EDGES = [
+    (0, 1, 1),   # Kos ke Simpang Dekat
+    (1, 3, 1),   # Simpang Dekat ke Fakultas Teknik
+    (0, 2, 12),  # Kos ke Simpang Jauh
+    (2, 3, 13)   # Simpang Jauh ke Fakultas Teknik
+]
+
+
+# ==========================================
+# ALGORITMA BELLMAN-FORD SERIAL
+# ==========================================
+
+def bellman_ford_serial(vertices, edges, source):
+    distances = [float("inf")] * vertices
+    previous = [None] * vertices
+
+    distances[source] = 0
+
+    start = perf_counter()
+
+    for _ in range(vertices - 1):
+        updated = False
+
+        for u, v, weight in edges:
+            if distances[u] != float("inf"):
+                new_distance = distances[u] + weight
+
+                if new_distance < distances[v]:
+                    distances[v] = new_distance
+                    previous[v] = u
+                    updated = True
+
+        if not updated:
+            break
+
+    execution_time = perf_counter() - start
+
+    return distances, previous, execution_time
+
+
+# ==========================================
+# FUNGSI UNTUK PROSES PARALEL
+# ==========================================
+
+def process_edges(args):
+    edges, distances = args
+    candidates = []
+
+    for u, v, weight in edges:
+        if distances[u] != float("inf"):
+            new_distance = distances[u] + weight
+            candidates.append((v, new_distance, u))
+
+    return candidates
+
+
+# ==========================================
+# ALGORITMA BELLMAN-FORD PARALEL
+# ==========================================
+
+def bellman_ford_parallel(vertices, edges, source):
+    distances = [float("inf")] * vertices
+    previous = [None] * vertices
+
+    distances[source] = 0
+
+    jumlah_worker = min(cpu_count(), len(edges))
+    jumlah_worker = max(1, jumlah_worker)
+
+    start = perf_counter()
+
+    with Pool(processes=jumlah_worker) as pool:
+
+        for _ in range(vertices - 1):
+
+            # Membagi edge menjadi beberapa bagian
+            bagian = [
+                edges[i::jumlah_worker]
+                for i in range(jumlah_worker)
+            ]
+
+            # Mengirim pekerjaan ke beberapa proses
+            hasil = pool.map(
+                process_edges,
+                [(bagian[i], distances[:])
+                 for i in range(jumlah_worker)]
+            )
+
+            updated = False
+
+            # Menggabungkan hasil dari setiap proses
+            for kelompok in hasil:
+                for v, new_distance, u in kelompok:
+
+                    if new_distance < distances[v]:
+                        distances[v] = new_distance
+                        previous[v] = u
+                        updated = True
+
+            if not updated:
+                break
+
+    execution_time = perf_counter() - start
+
+    return distances, previous, execution_time
+
+
+# ==========================================
+# MEMBENTUK JALUR TERPENDEK
+# ==========================================
+
+def get_path(previous, destination):
+    path = []
+    current = destination
+
+    while current is not None:
+        path.append(current)
+        current = previous[current]
+
+    path.reverse()
+    return path
+
+
+# ==========================================
+# MENAMPILKAN HASIL
+# ==========================================
+
+def tampilkan_hasil(judul, distances, previous, execution_time):
+    tujuan = 3
+    path = get_path(previous, tujuan)
+
+    print("\n", "=" * 45)
+    print(judul)
+    print("=" * 45)
+
+    print("Jalur terpendek:")
+
+    for lokasi in path:
+        print(NAMA_LOKASI[lokasi], end="")
+
+        if lokasi != tujuan:
+            print(" -> ", end="")
+
+    print("\nTotal waktu:", distances[tujuan], "menit")
+    print("Waktu eksekusi:", execution_time, "detik")
+
+
+# ==========================================
+# PROGRAM UTAMA
+# ==========================================
+
+def main():
+
+    print("SIMULASI RUTE TERPENDEK")
+    print("KOS MENUJU FAKULTAS TEKNIK UNSULBAR")
+
+    # Proses serial
+    hasil_serial = bellman_ford_serial(
+        JUMLAH_VERTEX, EDGES, 0
+    )
+
+    # Proses paralel
+    hasil_paralel = bellman_ford_parallel(
+        JUMLAH_VERTEX, EDGES, 0
+    )
+
+    tampilkan_hasil(
+        "HASIL BELLMAN-FORD SERIAL",
+        *hasil_serial
+    )
+
+    tampilkan_hasil(
+        "HASIL BELLMAN-FORD PARALEL",
+        *hasil_paralel
+    )
+
+    print("\n" + "=" * 45)
+    print("VALIDASI HASIL")
+    print("=" * 45)
+
+    if hasil_serial[0] == hasil_paralel[0]:
+        print("Hasil serial dan paralel SAMA.")
+    else:
+        print("Hasil serial dan paralel BERBEDA.")
+
+
+if __name__ == "__main__":
+    main()
